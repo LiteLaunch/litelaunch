@@ -1,0 +1,6 @@
+[submodule "plugins/yad"]
+	path = plugins/yad
+	url = https://github.com/Slava-Gusak/litelaunch-yad.git
+[submodule "plugins/vd"]
+	path = plugins/vd
+	url = https://github.com/Slava-Gusak/litelaunch-vd.git

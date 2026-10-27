@@ -1,0 +1,26 @@
+1 ICON "assets/icon.ico"
+2 ICON "plugins/yad/yad.ico"
+3 ICON "plugins/vd/vd.ico"
+1 24 "app.manifest"
+
+// The name Windows shows on notifications from the tray icon.
+1 VERSIONINFO
+FILEVERSION 0,1,0,0
+PRODUCTVERSION 0,1,0,0
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "FileDescription", "LiteLaunch"
+      VALUE "ProductName", "LiteLaunch"
+      VALUE "FileVersion", "0.1.0"
+      VALUE "ProductVersion", "0.1.0"
+      VALUE "OriginalFilename", "litelaunch.exe"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END
