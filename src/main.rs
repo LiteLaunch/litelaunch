@@ -17,6 +17,7 @@ mod vd;
 #[path = "../plugins/yad/yad.rs"]
 mod yad;
 mod ui;
+mod util;
 
 use windows::Win32::Foundation::*;
 use windows::Win32::System::DataExchange::COPYDATASTRUCT;

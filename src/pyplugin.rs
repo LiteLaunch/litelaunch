@@ -9,7 +9,7 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+use crate::util::CREATE_NO_WINDOW;
 
 #[derive(Clone)]
 pub struct PyResult {

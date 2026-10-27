@@ -131,7 +131,7 @@ fn is_system(item: &IShellItem, id: &str, location: &str) -> bool {
         return false;
     }
     let args = string_property(item, w!("System.Link.Arguments")).unwrap_or_default();
-    let args = crate::yad::expand_env(&args).to_lowercase();
+    let args = crate::util::expand_env(&args).to_lowercase();
     // Every path in the arguments must be inside Windows too.
     args.match_indices(":\\").all(|(i, _)| i > 0 && args[i - 1..].starts_with(&windir))
 }

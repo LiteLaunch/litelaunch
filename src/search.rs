@@ -139,11 +139,12 @@ impl Engine {
                 self.apply_pins(query, &mut out.items);
                 return out;
             }
-            if let Some(yad) = self.cfg.yad.as_ref().filter(|y| !y.keyword.is_empty() && kw.eq_ignore_ascii_case(&y.keyword)) {
+            let (yad, vd) = (&self.cfg.yad, &self.cfg.vd);
+            if !yad.keyword.is_empty() && kw.eq_ignore_ascii_case(&yad.keyword) {
                 out.items = crate::yad::search(yad, rest.trim());
                 return out;
             }
-            if let Some(vd) = self.cfg.vd.as_ref().filter(|v| !v.keyword.is_empty() && kw.eq_ignore_ascii_case(&v.keyword)) {
+            if !vd.keyword.is_empty() && kw.eq_ignore_ascii_case(&vd.keyword) {
                 match crate::vd::search(vd, rest.trim(), &self.vd_cache) {
                     crate::vd::Found::Items(items) => {
                         out.warm_vd = vd.prewarm && crate::vd::has_lib() && items.iter().all(|it| matches!(it.action, Action::Nothing | Action::Vd(_) | Action::SetQuery(_)));
@@ -191,11 +192,11 @@ impl Engine {
         if cfg.steam_keyword.eq_ignore_ascii_case(kw) {
             cfg.steam_keyword.clear();
         }
-        if let Some(yad) = cfg.yad.as_mut().filter(|y| y.keyword.eq_ignore_ascii_case(kw)) {
-            yad.keyword.clear();
+        if cfg.yad.keyword.eq_ignore_ascii_case(kw) {
+            cfg.yad.keyword.clear();
         }
-        if let Some(vd) = cfg.vd.as_mut().filter(|v| v.keyword.eq_ignore_ascii_case(kw)) {
-            vd.keyword.clear();
+        if cfg.vd.keyword.eq_ignore_ascii_case(kw) {
+            cfg.vd.keyword.clear();
         }
         crate::config::save(cfg);
     }
@@ -274,12 +275,8 @@ impl Engine {
         // Steam gets none: "st" should show the Steam app itself; "st " starts the game search.
         let mut hints: Vec<(String, String, Option<String>)> =
             vec![(self.cfg.kill_keyword.clone(), "Process Killer".into(), Some("C:\\Windows\\System32\\Taskmgr.exe".into()))];
-        if let Some(yad) = &self.cfg.yad {
-            hints.push((yad.keyword.clone(), "Yandex Music Downloader".into(), Some(crate::yad::icon())));
-        }
-        if let Some(vd) = &self.cfg.vd {
-            hints.push((vd.keyword.clone(), "Video Downloader".into(), Some(crate::vd::icon())));
-        }
+        hints.push((self.cfg.yad.keyword.clone(), "Yandex Music Downloader".into(), Some(crate::yad::icon())));
+        hints.push((self.cfg.vd.keyword.clone(), "Video Downloader".into(), Some(crate::vd::icon())));
         for p in &self.cfg.plugins {
             let icon = std::path::Path::new(&p.dir).join(&p.icon);
             hints.push((p.keyword.clone(), p.name.clone(), icon.exists().then(|| icon.to_string_lossy().into())));

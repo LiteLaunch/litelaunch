@@ -1,7 +1,7 @@
 # LiteLaunch
 
 Native keystroke launcher for Windows, a lightweight replacement for Flow Launcher.
-Rust + Win32 + GDI, one ~600 KB exe, ~7 MB private memory (Flow: ~190 MB).
+Rust + Win32 + GDI, one ~900 KB exe, ~7 MB private memory (Flow: ~190 MB).
 
 | Query | What it does |
 |---|---|
@@ -11,14 +11,13 @@ Rust + Win32 + GDI, one ~600 KB exe, ~7 MB private memory (Flow: ~190 MB).
 | `st dead` | Installed Steam games from every library |
 | `yad <url>` | Yandex Music downloader, built in: the query is native, Python (`ymd`) runs only for the download. Empty query offers a link from the clipboard; `yad y0_…` saves the token, `yad reset token` clears it |
 | `vd <url>` | Video downloader (yt-dlp), built in: the link is checked natively, Python runs only to read the formats and to download. Empty query offers a link from the clipboard |
-| `<keyword> …` | Flow Launcher Python plugins (JSON-RPC v1), run only while a query is in flight |
+| `<keyword> …` | Python plugins in Flow Launcher's JSON-RPC v1 format (`plugins` in the config), run only while a query is in flight |
 
 Keys: ↑/↓, PgUp/PgDn, Enter, Tab (complete), Esc, Ctrl+Backspace.
 
 ## Config
 
-`%APPDATA%\LiteLaunch\config.json`, created on first run from Flow Launcher's settings
-(hotkey, Python path, v1 Python plugins). Tray icon → "Настройки" opens it, "Перезапустить" applies it.
+`%APPDATA%\LiteLaunch\config.json`, created with defaults on first run. Tray icon → "Настройки" opens it, "Перезапустить" applies it.
 
 `litelaunch --show [query]` opens the running instance, `litelaunch --exit` closes it.
 
@@ -26,7 +25,6 @@ Keys: ↑/↓, PgUp/PgDn, Enter, Tab (complete), Esc, Ctrl+Backspace.
 
 Scripts live in `plugins/yad/` (its own repo) and are embedded in the exe; on start they are unpacked to
 `%APPDATA%\LiteLaunch\yad` (token in `token.json`, DPAPI-encrypted; deps in `lib`).
-On first run the token, settings and `lib` are taken over from the old Flow plugin.
 If `lib` is missing, `yad` offers to build it with pip. Check: `python yad.py doctor`.
 
 `plugins/yad/ymd_fast.py` runs ymd's CLI in-process with three replacements: one keep-alive HTTP session,
@@ -36,8 +34,7 @@ byte-identical files, peak RAM ~110 MB (was ~97 MB + a second Python process).
 
 ## vd
 
-Replaces Flow's AnyVideo Downloader (its keyword and settings are taken over; yt-dlp is copied from
-its `lib` on first run). `plugins/vd/vd.py` is embedded and unpacked to `%APPDATA%\LiteLaunch\vd`.
+Replaces Flow's AnyVideo Downloader. `plugins/vd/vd.py` is embedded and unpacked to `%APPDATA%\LiteLaunch\vd`.
 - No Python until the text is a link; results are cached per link for an hour.
 - The query saves yt-dlp's unprocessed info to `%TEMP%\LiteLaunch-vd`; the download reuses it
   instead of extracting again (processed info gives 403 on YouTube https formats).

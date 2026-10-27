@@ -187,7 +187,7 @@ impl State {
         match plugin {
             PluginRef::User(i) => self.engine.cfg.plugins.get(i).map(|p| (p.clone(), pyplugin::file_settings(p))),
             PluginRef::Vd => {
-                let vd = self.engine.cfg.vd.as_ref()?;
+                let vd = &self.engine.cfg.vd;
                 Some((crate::vd::plugin_config(vd), serde_json::to_value(vd).unwrap_or_default()))
             }
         }
@@ -218,15 +218,11 @@ impl State {
                 self.py_action(plugin, &action)
             }
             Action::Yad(op) => {
-                if let Some(cfg) = &self.engine.cfg.yad {
-                    crate::yad::run(op, cfg, &self.engine.cfg.python);
-                }
+                crate::yad::run(op, &self.engine.cfg.yad, &self.engine.cfg.python);
                 After::Hide
             }
             Action::Vd(op) => {
-                if let Some(cfg) = &self.engine.cfg.vd {
-                    crate::vd::run(op, cfg, &self.engine.cfg.python);
-                }
+                crate::vd::run(op, &self.engine.cfg.vd, &self.engine.cfg.python);
                 After::Hide
             }
             Action::RunAsAdmin(file) => {

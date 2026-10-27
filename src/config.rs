@@ -1,11 +1,11 @@
-//! Settings in %APPDATA%\LiteLaunch\config.json. Created on first run; Flow Launcher's
-//! Python plugins (JSON-RPC v1) and its Python path are picked up automatically.
+//! Settings in %APPDATA%\LiteLaunch\config.json, created with defaults on first run.
 
 pub use crate::vd::VdConfig;
 pub use crate::yad::YadConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use crate::util::read_json;
+use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
@@ -37,11 +37,12 @@ pub struct Config {
     pub steam_keyword: String,
     /// pythonw.exe used for the plugins.
     pub python: String,
+    /// Python plugins speaking Flow Launcher's JSON-RPC v1 (one process per call).
     pub plugins: Vec<PluginConfig>,
-    /// Built-in Yandex Music downloader. None only in configs written before it existed.
-    pub yad: Option<YadConfig>,
-    /// Built-in video downloader (yt-dlp). None only in configs written before it existed.
-    pub vd: Option<VdConfig>,
+    /// Built-in Yandex Music downloader.
+    pub yad: YadConfig,
+    /// Built-in video downloader (yt-dlp).
+    pub vd: VdConfig,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -55,7 +56,7 @@ pub struct PluginConfig {
     pub entry: String,
     /// Icon inside `dir`.
     pub icon: String,
-    /// Flow's Settings.json for this plugin, sent as "settings" with every request.
+    /// A JSON file sent as "settings" with every request (Flow keeps one per plugin).
     pub settings_file: String,
 }
 
@@ -77,8 +78,8 @@ impl Default for Config {
             steam_keyword: "st".into(),
             python: "pythonw".into(),
             plugins: Vec::new(),
-            yad: None,
-            vd: None,
+            yad: YadConfig::default(),
+            vd: VdConfig::default(),
         }
     }
 }
@@ -91,92 +92,18 @@ pub fn path() -> PathBuf {
     dir().join("config.json")
 }
 
-fn flow_dir() -> PathBuf {
-    PathBuf::from(std::env::var("APPDATA").unwrap_or_default()).join("FlowLauncher")
-}
-
 pub fn load() -> Config {
     let mut cfg = std::fs::read_to_string(path())
         .ok()
         .and_then(|s| serde_json::from_str::<Config>(&s).ok())
-        .unwrap_or_else(import_from_flow);
+        .unwrap_or_default();
     cfg.input_font_size = cfg.input_font_size.clamp(10.0, 40.0);
     if cfg.input_height > 0.0 {
         // At least room for the text itself.
         cfg.input_height = cfg.input_height.clamp(cfg.input_font_size * 1.6, 200.0);
     }
-    if cfg.yad.is_none() {
-        // yad used to be a Flow Python plugin; it is built in now and keeps its Flow settings.
-        cfg.plugins.retain(|p| !p.keyword.eq_ignore_ascii_case("yad"));
-        let flow = flow_dir().join("Settings").join("Plugins").join(YAD_FLOW_NAME).join("Settings.json");
-        let mut yad = YadConfig::default();
-        if let Some(v) = read_json(&flow) {
-            for (k, d) in [("download_dir", &mut yad.download_dir), ("quality", &mut yad.quality), ("lyrics_format", &mut yad.lyrics_format)] {
-                if let Some(x) = v[k].as_str().filter(|x| !x.is_empty()) {
-                    *d = x.to_string();
-                }
-            }
-            for (k, d) in [
-                ("skip_existing", &mut yad.skip_existing),
-                ("open_folder_after", &mut yad.open_folder_after),
-                ("playlist_folder", &mut yad.playlist_folder),
-                ("only_music", &mut yad.only_music),
-                ("stick_to_artist", &mut yad.stick_to_artist),
-            ] {
-                if let Some(x) = v[k].as_bool() {
-                    *d = x;
-                }
-            }
-        }
-        cfg.yad = Some(yad);
-    }
-    if cfg.vd.is_none() {
-        cfg.vd = Some(vd_from_flow(&mut cfg));
-    }
     save(&cfg);
     cfg
-}
-
-/// vd replaces Flow's AnyVideo Downloader: takes over its keyword and settings.
-fn vd_from_flow(cfg: &mut Config) -> VdConfig {
-    let mut vd = VdConfig::default();
-    let flow = cfg.plugins.iter().position(|p| p.name.starts_with(ANYVIDEO_FLOW_NAME)).map(|i| cfg.plugins.remove(i));
-    let settings_file = match &flow {
-        Some(p) => {
-            vd.keyword = p.keyword.clone();
-            PathBuf::from(&p.settings_file)
-        }
-        None => flow_dir().join("Settings").join("Plugins").join(ANYVIDEO_FLOW_NAME).join("Settings.json"),
-    };
-    let Some(v) = read_json(&settings_file) else { return vd };
-    for (k, d) in [
-        ("download_path", &mut vd.download_dir),
-        ("preferred_video_format", &mut vd.video_format),
-        ("preferred_audio_format", &mut vd.audio_format),
-        ("sorting_order", &mut vd.sorting_order),
-    ] {
-        if let Some(x) = v[k].as_str().filter(|x| !x.is_empty()) {
-            *d = x.to_string();
-        }
-    }
-    if let Some(x) = v["auto_open_folder"].as_bool() {
-        vd.open_folder_after = x;
-    }
-    if let Some(x) = v["overwrite_existing_files"].as_bool() {
-        vd.overwrite = x;
-    }
-    if v["use_cookie_file"].as_bool() == Some(true) {
-        vd.cookie_file = v["cookie_file_path"].as_str().unwrap_or_default().to_string();
-    }
-    vd
-}
-
-const ANYVIDEO_FLOW_NAME: &str = "AnyVideo Downloader";
-
-const YAD_FLOW_NAME: &str = "Yandex Music Downloader";
-
-fn read_json(path: &Path) -> Option<serde_json::Value> {
-    serde_json::from_str(std::fs::read_to_string(path).ok()?.trim_start_matches('\u{feff}')).ok()
 }
 
 pub fn save(cfg: &Config) {
@@ -184,50 +111,6 @@ pub fn save(cfg: &Config) {
     if let Ok(s) = serde_json::to_string_pretty(cfg) {
         let _ = std::fs::write(path(), s);
     }
-}
-
-/// First-run defaults: Python path and v1 Python plugins from an installed Flow Launcher.
-fn import_from_flow() -> Config {
-    let mut cfg = Config::default();
-    let flow = flow_dir();
-    let settings = read_json(&flow.join("Settings").join("Settings.json")).unwrap_or_default();
-    if let Some(py) = settings["PluginSettings"]["PythonExecutablePath"].as_str().filter(|p| Path::new(p).exists()) {
-        cfg.python = py.into();
-    }
-    if let Some(hk) = settings["Hotkey"].as_str() {
-        cfg.hotkey = hk.replace(' ', "");
-    }
-    if let Some(n) = settings["MaxResultsToShow"].as_u64() {
-        cfg.max_results = n.clamp(3, 12) as usize;
-    }
-
-    let Ok(entries) = std::fs::read_dir(flow.join("Plugins")) else { return cfg };
-    for e in entries.flatten() {
-        let dir = e.path();
-        let Some(meta) = std::fs::read_to_string(dir.join("plugin.json"))
-            .ok()
-            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-        else {
-            continue;
-        };
-        // Only the per-call v1 protocol; v2 plugins keep a process alive, which is what we avoid.
-        if meta["Language"].as_str().map(|l| l.eq_ignore_ascii_case("python")) != Some(true) {
-            continue;
-        }
-        let name = meta["Name"].as_str().unwrap_or_default().to_string();
-        if name == YAD_FLOW_NAME || name.starts_with(ANYVIDEO_FLOW_NAME) {
-            continue;
-        }
-        cfg.plugins.push(PluginConfig {
-            keyword: meta["ActionKeyword"].as_str().unwrap_or_default().to_string(),
-            dir: dir.to_string_lossy().into(),
-            entry: meta["ExecuteFileName"].as_str().unwrap_or("main.py").to_string(),
-            icon: meta["IcoPath"].as_str().unwrap_or_default().to_string(),
-            settings_file: flow.join("Settings").join("Plugins").join(&name).join("Settings.json").to_string_lossy().into(),
-            name,
-        });
-    }
-    cfg
 }
 
 /// Launch counts per target, used to rank frequently used results higher.
