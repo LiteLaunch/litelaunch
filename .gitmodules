@@ -4,3 +4,6 @@
 [submodule "plugins/vd"]
 	path = plugins/vd
 	url = https://github.com/Slava-Gusak/litelaunch-vd.git
+[submodule "plugins/_archive/litelaunch-vpn"]
+	path = plugins/_archive/litelaunch-vpn
+	url = https://github.com/Slava-Gusak/litelaunch-vpn.git

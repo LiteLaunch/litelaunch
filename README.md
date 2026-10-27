@@ -53,6 +53,7 @@ its `lib` on first run). `plugins/vd/vd.py` is embedded and unpacked to `%APPDAT
 src/            the launcher
 plugins/yad/    submodule: litelaunch-yad (yad.rs, compiled in, + its Python worker)
 plugins/vd/     submodule: litelaunch-vd  (vd.rs, compiled in, + its Python worker)
+plugins/_archive/litelaunch-vpn/   submodule: the dropped VPN plugin (archived, not built)
 assets/         the app icon
 ```
 
