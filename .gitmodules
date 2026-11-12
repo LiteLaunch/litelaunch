@@ -1,9 +1,12 @@
 [submodule "plugins/yad"]
 	path = plugins/yad
-	url = https://github.com/Slava-Gusak/litelaunch-yad.git
+	url = https://github.com/LiteLaunch/litelaunch-yad.git
 [submodule "plugins/vd"]
 	path = plugins/vd
-	url = https://github.com/Slava-Gusak/litelaunch-vd.git
+	url = https://github.com/LiteLaunch/litelaunch-vd.git
 [submodule "plugins/_archive/litelaunch-vpn"]
 	path = plugins/_archive/litelaunch-vpn
 	url = https://github.com/Slava-Gusak/litelaunch-vpn.git
+[submodule "plugins/zapret"]
+	path = plugins/zapret
+	url = https://github.com/LiteLaunch/litelaunch-zapret.git

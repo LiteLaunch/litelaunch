@@ -2,6 +2,7 @@
 
 pub use crate::vd::VdConfig;
 pub use crate::yad::YadConfig;
+pub use crate::zapret::ZapretConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use crate::util::read_json;
@@ -47,6 +48,8 @@ pub struct Config {
     pub yad: YadConfig,
     /// Built-in video downloader (yt-dlp).
     pub vd: VdConfig,
+    /// Built-in zapret (Flowseal) config picker.
+    pub zapret: ZapretConfig,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -86,6 +89,7 @@ impl Default for Config {
             plugins: Vec::new(),
             yad: YadConfig::default(),
             vd: VdConfig::default(),
+            zapret: ZapretConfig::default(),
         }
     }
 }

@@ -78,6 +78,7 @@ pub enum Action {
     Py { plugin: PluginRef, action: RpcAction },
     Yad(crate::yad::Op),
     Vd(crate::vd::Op),
+    Zapret(crate::zapret::Op),
     RunAsAdmin(String),
     /// Opens Explorer with the file selected.
     Reveal(String),
@@ -171,6 +172,10 @@ impl Engine {
                 }
                 return out;
             }
+            if !self.cfg.zapret.keyword.is_empty() && kw.eq_ignore_ascii_case(&self.cfg.zapret.keyword) {
+                out.items = crate::zapret::search(&self.cfg.zapret, rest.trim());
+                return out;
+            }
             if let Some(i) = self.cfg.plugins.iter().position(|p| p.keyword.eq_ignore_ascii_case(kw)) {
                 out.plugin_query = Some((PluginRef::User(i), rest.trim().to_string()));
                 return out;
@@ -183,7 +188,8 @@ impl Engine {
 
     /// The actions menu for a result: its own actions, plus removing the plugin on keyword rows.
     pub fn actions(&self, item: &Item) -> Vec<Item> {
-        let mut v = item.actions();
+        let mut v = crate::zapret::actions(&self.cfg.zapret, item);
+        v.extend(item.actions());
         if let Action::SetQuery(q) = &item.action {
             let kw = q.trim();
             let title = if self.cfg.plugins.iter().any(|p| p.keyword.eq_ignore_ascii_case(kw)) {
@@ -235,6 +241,9 @@ impl Engine {
         }
         if cfg.vd.keyword.eq_ignore_ascii_case(kw) {
             cfg.vd.keyword.clear();
+        }
+        if cfg.zapret.keyword.eq_ignore_ascii_case(kw) {
+            cfg.zapret.keyword.clear();
         }
         crate::config::save(cfg);
     }
@@ -317,6 +326,7 @@ impl Engine {
         hints.push((self.cfg.shell_keyword.clone(), "Shell (PowerShell)".into(), None));
         hints.push((self.cfg.yad.keyword.clone(), "Yandex Music Downloader".into(), Some(crate::yad::icon())));
         hints.push((self.cfg.vd.keyword.clone(), "Video Downloader".into(), Some(crate::vd::icon())));
+        hints.push((self.cfg.zapret.keyword.clone(), "Zapret".into(), Some(crate::zapret::icon())));
         for p in &self.cfg.plugins {
             let icon = std::path::Path::new(&p.dir).join(&p.icon);
             hints.push((p.keyword.clone(), p.name.clone(), icon.exists().then(|| icon.to_string_lossy().into())));

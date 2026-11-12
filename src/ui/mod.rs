@@ -259,6 +259,22 @@ impl State {
                 crate::vd::run(op, &self.engine.cfg.vd, &self.engine.cfg.python);
                 After::Hide
             }
+            Action::Zapret(op) => {
+                let op = op.clone();
+                if matches!(op, crate::zapret::Op::ChooseFolder) {
+                    // The folder dialog would open under the launcher window.
+                    hide(self.hwnd);
+                }
+                let (changed, after) = crate::zapret::run(&op, &mut self.engine.cfg.zapret);
+                if changed {
+                    crate::config::save(&self.engine.cfg);
+                }
+                match after {
+                    crate::zapret::After::Hide => After::Hide,
+                    crate::zapret::After::Requery => After::Requery,
+                    crate::zapret::After::SetQuery(q) => After::SetQuery(q),
+                }
+            }
             Action::RunAsAdmin(file) => {
                 shell_open(&file.clone(), w!("runas"));
                 After::Hide
@@ -887,6 +903,7 @@ pub fn run(show_now: bool) -> Result<()> {
         rescan_apps(hwnd);
         std::thread::spawn(crate::yad::install);
         std::thread::spawn(crate::vd::install);
+        std::thread::spawn(crate::zapret::install);
 
         // After a restart the old instance may still hold the hotkey for a moment.
         let mut registered = false;

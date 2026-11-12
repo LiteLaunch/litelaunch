@@ -18,6 +18,8 @@ mod steam;
 mod vd;
 #[path = "../plugins/yad/yad.rs"]
 mod yad;
+#[path = "../plugins/zapret/zapret.rs"]
+mod zapret;
 mod ui;
 mod util;
 

@@ -11,6 +11,7 @@ Rust + Win32 + GDI, one ~900 KB exe, ~7 MB private memory (Flow: ~190 MB).
 | `st dead` | Installed Steam games from every library |
 | `yad <url>` | Yandex Music downloader, built in: the query is native, Python (`ymd`) runs only for the download. Empty query offers a link from the clipboard; `yad y0_…` saves the token, `yad reset token` clears it |
 | `vd <url>` | Video downloader (yt-dlp), built in: the link is checked natively, Python runs only to read the formats and to download. Empty query offers a link from the clipboard |
+| `z <name>` | zapret (Flowseal) config picker, built in: Enter restarts winws.exe with the chosen `general*.bat` (UAC), Right arrow adds it to favorites. Keeps its own zapret in `%APPDATA%\LiteLaunch\zapret` (or a folder you pick), installs and updates it from GitHub keeping your settings; rows for `service.bat` and the folder |
 | `<keyword> …` | Python plugins in Flow Launcher's JSON-RPC v1 format (`plugins` in the config), run only while a query is in flight |
 
 Keys: ↑/↓, PgUp/PgDn, Enter, Tab (complete), Esc, Ctrl+Backspace.
@@ -50,17 +51,20 @@ Replaces Flow's AnyVideo Downloader. `plugins/vd/vd.py` is embedded and unpacked
 src/            the launcher
 plugins/yad/    submodule: litelaunch-yad (yad.rs, compiled in, + its Python worker)
 plugins/vd/     submodule: litelaunch-vd  (vd.rs, compiled in, + its Python worker)
+plugins/zapret/ submodule: litelaunch-zapret (zapret.rs, compiled in, + update.ps1 and icons)
 plugins/_archive/litelaunch-vpn/   submodule: the dropped VPN plugin (archived, not built)
 assets/         the app icon
 ```
 
-Plugins live in their own repositories and are pulled in as git submodules:
-[litelaunch-yad](https://github.com/Slava-Gusak/litelaunch-yad),
-[litelaunch-vd](https://github.com/Slava-Gusak/litelaunch-vd). The dropped VPN plugin is
+Plugins live in their own repositories in the [LiteLaunch](https://github.com/LiteLaunch) organization
+and are pulled in as git submodules:
+[litelaunch-yad](https://github.com/LiteLaunch/litelaunch-yad),
+[litelaunch-vd](https://github.com/LiteLaunch/litelaunch-vd),
+[litelaunch-zapret](https://github.com/LiteLaunch/litelaunch-zapret). The dropped VPN plugin is
 [litelaunch-vpn](https://github.com/Slava-Gusak/litelaunch-vpn) (archived).
 
 ```
-git clone --recursive https://github.com/Slava-Gusak/litelaunch.git
+git clone --recursive https://github.com/LiteLaunch/litelaunch.git
 git submodule update --remote      # take the plugins' latest commits
 ```
 
