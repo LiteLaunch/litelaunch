@@ -52,7 +52,6 @@ src/            the launcher
 plugins/yad/    submodule: litelaunch-yad (yad.rs, compiled in, + its Python worker)
 plugins/vd/     submodule: litelaunch-vd  (vd.rs, compiled in, + its Python worker)
 plugins/zapret/ submodule: litelaunch-zapret (zapret.rs, compiled in, + update.ps1 and icons)
-plugins/_archive/litelaunch-vpn/   submodule: the dropped VPN plugin (archived, not built)
 assets/         the app icon
 ```
 
@@ -60,8 +59,7 @@ Plugins live in their own repositories in the [LiteLaunch](https://github.com/Li
 and are pulled in as git submodules:
 [litelaunch-yad](https://github.com/LiteLaunch/litelaunch-yad),
 [litelaunch-vd](https://github.com/LiteLaunch/litelaunch-vd),
-[litelaunch-zapret](https://github.com/LiteLaunch/litelaunch-zapret). The dropped VPN plugin is
-[litelaunch-vpn](https://github.com/Slava-Gusak/litelaunch-vpn) (archived).
+[litelaunch-zapret](https://github.com/LiteLaunch/litelaunch-zapret).
 
 ```
 git clone --recursive https://github.com/LiteLaunch/litelaunch.git

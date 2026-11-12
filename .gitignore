@@ -1,1 +1,3 @@
 target/
+# Dropped plugins, kept locally (their repos stay private)
+plugins/_archive/
