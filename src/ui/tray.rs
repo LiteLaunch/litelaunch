@@ -36,7 +36,9 @@ pub(super) fn add_tray(hwnd: HWND) {
         nid.uCallbackMessage = WM_APP_TRAY;
         let instance = GetModuleHandleW(None).unwrap_or_default();
         let size = GetSystemMetrics(SM_CXSMICON);
-        nid.hIcon = LoadImageW(Some(instance.into()), PCWSTR(1 as _), IMAGE_ICON, size, size, LR_DEFAULTCOLOR)
+        // Resource 4 (assets/tray.ico) is drawn for small sizes; 1 is the app icon.
+        nid.hIcon = LoadImageW(Some(instance.into()), PCWSTR(4 as _), IMAGE_ICON, size, size, LR_DEFAULTCOLOR)
+            .or_else(|_| LoadImageW(Some(instance.into()), PCWSTR(1 as _), IMAGE_ICON, size, size, LR_DEFAULTCOLOR))
             .map(|h| HICON(h.0))
             .unwrap_or_default();
         copy_wide(&mut nid.szTip, "LiteLaunch");

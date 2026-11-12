@@ -1,3 +1,5 @@
+<img src="assets/icon-256.png" width="96" align="right" alt="">
+
 # LiteLaunch
 
 Native keystroke launcher for Windows, a lightweight replacement for Flow Launcher.
@@ -52,7 +54,7 @@ src/            the launcher
 plugins/yad/    submodule: litelaunch-yad (yad.rs, compiled in, + its Python worker)
 plugins/vd/     submodule: litelaunch-vd  (vd.rs, compiled in, + its Python worker)
 plugins/zapret/ submodule: litelaunch-zapret (zapret.rs, compiled in, + update.ps1 and icons)
-assets/         the app icon
+assets/         the app icon (icon.ico), the tray icon (tray.ico) and their SVG sources
 ```
 
 Plugins live in their own repositories in the [LiteLaunch](https://github.com/LiteLaunch) organization
