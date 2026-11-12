@@ -69,3 +69,14 @@ git submodule update --remote      # take the plugins' latest commits
 ```
 cargo build --release
 ```
+
+## Installer
+
+```
+powershell -File installer\build.ps1     # → target\installer\LiteLaunch-<version>-x64-setup.exe
+```
+
+Needs Inno Setup 6 (`winget install JRSoftware.InnoSetup`). The installer is x64-only and per-user
+(no admin): `%LOCALAPPDATA%\Programs\LiteLaunch`, Start menu shortcut, optional autostart and desktop
+icon. It closes a running instance with `--exit` before updating; the uninstaller removes autostart
+and asks whether to delete `%APPDATA%\LiteLaunch`.

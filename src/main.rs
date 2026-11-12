@@ -4,12 +4,14 @@
 
 mod apps;
 mod calc;
+mod clip;
 mod config;
 mod fuzzy;
 mod icons;
 mod procs;
 mod pyplugin;
 mod search;
+mod shell;
 mod steam;
 // Built-in plugins: each lives in its own repository, a submodule under plugins/.
 #[path = "../plugins/vd/vd.rs"]

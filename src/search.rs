@@ -67,6 +67,13 @@ pub enum Action {
     Launch(String),
     Copy(String),
     Kill(Vec<u32>),
+    /// A PowerShell command (see shell.rs).
+    Shell(String),
+    ShellForget(String),
+    /// A clipboard history entry: paste it (see clip.rs).
+    Clip(String),
+    ClipForget(String),
+    ClipClear,
     SetQuery(String),
     Py { plugin: PluginRef, action: RpcAction },
     Yad(crate::yad::Op),
@@ -106,6 +113,8 @@ pub struct Engine {
     pub pins: Pins,
     pub hidden: Hidden,
     pub vd_cache: crate::vd::Cache,
+    pub shell_history: crate::shell::History,
+    pub clip: crate::clip::History,
     games: Vec<steam::Game>,
     games_at: Option<Instant>,
 }
@@ -121,7 +130,7 @@ pub struct Outcome {
 
 impl Engine {
     pub fn new(cfg: Config, apps: Arc<RwLock<Vec<App>>>) -> Self {
-        Self { cfg, apps, usage: Usage::load(), pins: Pins::load(), hidden: Hidden::load(), vd_cache: Default::default(), games: Vec::new(), games_at: None }
+        Self { cfg, apps, usage: Usage::load(), pins: Pins::load(), hidden: Hidden::load(), vd_cache: Default::default(), shell_history: crate::shell::History::load(), clip: crate::clip::History::load(), games: Vec::new(), games_at: None }
     }
 
     pub fn search(&mut self, query: &str) -> Outcome {
@@ -129,9 +138,17 @@ impl Engine {
         if query.trim().is_empty() {
             return out;
         }
+        if let Some(cmd) = crate::shell::strip(&self.cfg.shell_keyword, query) {
+            out.items = crate::shell::search(&self.shell_history, cmd);
+            return out;
+        }
         if let Some((kw, rest)) = query.split_once(' ') {
             if !self.cfg.kill_keyword.is_empty() && kw.eq_ignore_ascii_case(&self.cfg.kill_keyword) {
                 out.items = self.kill(rest.trim());
+                return out;
+            }
+            if !self.cfg.clip_keyword.is_empty() && kw.eq_ignore_ascii_case(&self.cfg.clip_keyword) {
+                out.items = crate::clip::search(&self.clip, rest.trim());
                 return out;
             }
             if !self.cfg.steam_keyword.is_empty() && kw.eq_ignore_ascii_case(&self.cfg.steam_keyword) {
@@ -178,6 +195,21 @@ impl Engine {
             it.glyph = Some('\u{E74D}');
             v.push(it);
         }
+        if let Action::Clip(text) = &item.action {
+            let row = |glyph: char, title: &str, action: Action| {
+                let mut it = Item::new(title, item.title.clone(), None, 0, action);
+                it.glyph = Some(glyph);
+                it
+            };
+            v.push(row('\u{E8C8}', "Скопировать", Action::Copy(text.clone())));
+            v.push(row('\u{E74D}', "Удалить из истории", Action::ClipForget(text.clone())));
+            v.push(row('\u{E894}', "Очистить всю историю буфера", Action::ClipClear));
+        }
+        if let (Action::Shell(cmd), "Из истории") = (&item.action, item.sub.as_str()) {
+            let mut it = Item::new("Удалить из истории", cmd.clone(), None, 0, Action::ShellForget(cmd.clone()));
+            it.glyph = Some('\u{E74D}');
+            v.push(it);
+        }
         v
     }
 
@@ -191,6 +223,12 @@ impl Engine {
         }
         if cfg.steam_keyword.eq_ignore_ascii_case(kw) {
             cfg.steam_keyword.clear();
+        }
+        if cfg.clip_keyword.eq_ignore_ascii_case(kw) {
+            cfg.clip_keyword.clear();
+        }
+        if cfg.shell_keyword.eq_ignore_ascii_case(kw) {
+            cfg.shell_keyword.clear();
         }
         if cfg.yad.keyword.eq_ignore_ascii_case(kw) {
             cfg.yad.keyword.clear();
@@ -275,6 +313,8 @@ impl Engine {
         // Steam gets none: "st" should show the Steam app itself; "st " starts the game search.
         let mut hints: Vec<(String, String, Option<String>)> =
             vec![(self.cfg.kill_keyword.clone(), "Process Killer".into(), Some("C:\\Windows\\System32\\Taskmgr.exe".into()))];
+        hints.push((self.cfg.clip_keyword.clone(), "История буфера обмена".into(), None));
+        hints.push((self.cfg.shell_keyword.clone(), "Shell (PowerShell)".into(), None));
         hints.push((self.cfg.yad.keyword.clone(), "Yandex Music Downloader".into(), Some(crate::yad::icon())));
         hints.push((self.cfg.vd.keyword.clone(), "Video Downloader".into(), Some(crate::vd::icon())));
         for p in &self.cfg.plugins {

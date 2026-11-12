@@ -46,6 +46,12 @@ use worker::*;
 
 pub const CLASS: PCWSTR = w!("LiteLaunchWindow");
 
+/// Set while show() runs: activation can bounce on the way to the foreground, and a
+/// WA_INACTIVE from that must not hide the window we are bringing up.
+static SHOWING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// The window that was active before the launcher showed: clipboard entries are pasted there.
+static PREV_FG: AtomicIsize = AtomicIsize::new(0);
+
 const WM_APP_PY: u32 = WM_APP + 1;
 const WM_APP_TRAY: u32 = WM_APP + 2;
 const WM_APP_APPS: u32 = WM_APP + 3;
@@ -213,6 +219,34 @@ impl State {
                 After::Requery
             }
             Action::SetQuery(q) => After::SetQuery(q.clone()),
+            Action::Shell(cmd) => {
+                let cmd = cmd.clone();
+                crate::shell::run(&mut self.engine.shell_history, &cmd, admin);
+                After::Hide
+            }
+            Action::Clip(text) => {
+                let text = text.clone();
+                copy_to_clipboard(self.hwnd, &text);
+                let copy_only = unsafe { GetKeyState(VK_SHIFT.0 as i32) } < 0;
+                if !copy_only {
+                    crate::clip::paste_into(PREV_FG.load(Ordering::Relaxed));
+                }
+                After::Hide
+            }
+            Action::ClipForget(text) => {
+                let text = text.clone();
+                self.engine.clip.forget(&text);
+                After::Requery
+            }
+            Action::ClipClear => {
+                self.engine.clip.clear();
+                After::Requery
+            }
+            Action::ShellForget(cmd) => {
+                let cmd = cmd.clone();
+                self.engine.shell_history.forget(&cmd);
+                After::Requery
+            }
             Action::Py { plugin, action } => {
                 let (plugin, action) = (*plugin, action.clone());
                 self.py_action(plugin, &action)
@@ -448,15 +482,28 @@ fn show(hwnd: HWND, query: Option<&str>) {
             SESSION_LAYOUT.store(0, Ordering::Relaxed);
             s.hover = None;
         });
-        let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), x, y, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW);
+        let fg = GetForegroundWindow();
+        if fg != hwnd {
+            PREV_FG.store(fg.0 as isize, Ordering::Relaxed);
+        }
+        SHOWING.store(true, Ordering::Relaxed);
+        let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), x, y, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
         bring_to_front(hwnd);
+        SHOWING.store(false, Ordering::Relaxed);
         let _ = SetFocus(Some(edit));
         SendMessageW(edit, EM_SETSEL, Some(WPARAM(0)), Some(LPARAM(-1)));
     }
 }
 
+/// Plain SetForegroundWindow first: after WM_HOTKEY (or AllowSetForegroundWindow from a second
+/// instance) we hold the foreground right. Attaching to the foreground thread is only a fallback —
+/// done up front, it hands our window that thread's activation state and deactivates it mid-show.
 fn bring_to_front(hwnd: HWND) {
     unsafe {
+        let _ = BringWindowToTop(hwnd);
+        if SetForegroundWindow(hwnd).as_bool() && GetForegroundWindow() == hwnd {
+            return;
+        }
         let fg_thread = GetWindowThreadProcessId(GetForegroundWindow(), None);
         let me = windows::Win32::System::Threading::GetCurrentThreadId();
         let attached = fg_thread != 0 && fg_thread != me && windows::Win32::System::Threading::AttachThreadInput(me, fg_thread, true).as_bool();
@@ -587,8 +634,15 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             if visible { hide(hwnd) } else { show(hwnd, None) }
             LRESULT(0)
         }
+        WM_CLIPBOARDUPDATE => {
+            let on = with(|s| !s.engine.cfg.clip_keyword.is_empty()).unwrap_or(false);
+            if let Some(text) = on.then(crate::clip::read_new).flatten() {
+                with(|s| s.engine.clip.add(text));
+            }
+            LRESULT(0)
+        }
         WM_ACTIVATE => {
-            if (wp.0 & 0xFFFF) as u32 == WA_INACTIVE {
+            if (wp.0 & 0xFFFF) as u32 == WA_INACTIVE && !SHOWING.load(Ordering::Relaxed) {
                 hide(hwnd);
             }
             LRESULT(0)
@@ -724,6 +778,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             unsafe {
                 let _ = Shell_NotifyIconW(NIM_DELETE, &tray_data(hwnd));
                 let _ = UnregisterHotKey(Some(hwnd), HOTKEY_ID);
+                let _ = RemoveClipboardFormatListener(hwnd);
                 PostQuitMessage(0);
             }
             LRESULT(0)
@@ -787,7 +842,7 @@ pub fn run(show_now: bool) -> Result<()> {
             Some(instance.into()),
             None,
         )?;
-        SendMessageW(edit, EM_SETCUEBANNER, Some(WPARAM(1)), Some(LPARAM(w!("Поиск программ, kill, st, vd, yad…").as_ptr() as isize)));
+        SendMessageW(edit, EM_SETCUEBANNER, Some(WPARAM(1)), Some(LPARAM(w!("…").as_ptr() as isize)));
         EDIT_PROC.store(SetWindowLongPtrW(edit, GWLP_WNDPROC, edit_proc as *const () as isize), Ordering::Relaxed);
 
         let apps_list = Arc::new(RwLock::new(Vec::new()));
@@ -828,6 +883,7 @@ pub fn run(show_now: bool) -> Result<()> {
         with(|s| s.apply_theme());
         place_edit(hwnd);
         add_tray(hwnd);
+        let _ = AddClipboardFormatListener(hwnd);
         rescan_apps(hwnd);
         std::thread::spawn(crate::yad::install);
         std::thread::spawn(crate::vd::install);

@@ -35,6 +35,10 @@ pub struct Config {
     pub search_icon: String,
     pub kill_keyword: String,
     pub steam_keyword: String,
+    /// Shell: `> command` in PowerShell 7 / Windows Terminal; empty turns it off.
+    pub shell_keyword: String,
+    /// Clipboard history: `cb words`; empty turns it off (and stops recording).
+    pub clip_keyword: String,
     /// pythonw.exe used for the plugins.
     pub python: String,
     /// Python plugins speaking Flow Launcher's JSON-RPC v1 (one process per call).
@@ -76,6 +80,8 @@ impl Default for Config {
             whitelist: vec!["Command Prompt".into(), "Windows PowerShell".into(), "PowerShell".into()],
             kill_keyword: "kill".into(),
             steam_keyword: "st".into(),
+            shell_keyword: ">".into(),
+            clip_keyword: "cb".into(),
             python: "pythonw".into(),
             plugins: Vec::new(),
             yad: YadConfig::default(),
