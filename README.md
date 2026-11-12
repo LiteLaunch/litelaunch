@@ -84,3 +84,16 @@ Needs Inno Setup 6 (`winget install JRSoftware.InnoSetup`). The installer is x64
 (no admin): `%LOCALAPPDATA%\Programs\LiteLaunch`, Start menu shortcut, optional autostart and desktop
 icon. It closes a running instance with `--exit` before updating; the uninstaller removes autostart
 and asks whether to delete `%APPDATA%\LiteLaunch`.
+
+## Credits
+
+LiteLaunch grew out of [Flow Launcher](https://github.com/Flow-Launcher/Flow.Launcher) and speaks its
+JSON-RPC v1 plugin protocol. The built-in features keep the keywords of the Flow plugins they take over
+from; their code is written from scratch:
+
+- `st`: [Steam Search](https://github.com/Garulf/Steam-Search) by Garulf.
+- `vd`: [AnyVideo Downloader](https://github.com/z1nc0r3/AnyVideo-Downloader-Flow-Plugin) by z1nc0r3.
+
+Downloads go through [yt-dlp](https://github.com/yt-dlp/yt-dlp) (`vd`) and
+[yandex-music-downloader](https://github.com/llistochek/yandex-music-downloader) (`yad`); `z` drives
+Flowseal's [zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube).
