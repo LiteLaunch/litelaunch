@@ -1,0 +1,60 @@
+{
+  "plugins": [
+    {
+      "id": "vd",
+      "name": "Video Downloader",
+      "version": "1.0.0",
+      "abi": 1,
+      "keyword": "vd",
+      "description": "Скачивание видео и звука по ссылке",
+      "details": "Скачивает видео и звук по ссылке через yt-dlp: YouTube, VK, Twitch, TikTok и ещё около 1800 сайтов.\n\nНапишите «vd» и вставьте ссылку: появится список форматов (лучшее видео, только звук, отдельные разрешения), Enter начинает загрузку. Пустой запрос предлагает ссылку из буфера обмена. Когда загрузка закончится, придёт уведомление; щелчок по нему открывает папку.\n\nПри первом запуске плагин предложит установить yt-dlp (через pip, в отдельном окне). Дальше yt-dlp обновляется сам раз в неделю.",
+      "requires": [
+        "Python (если его нет, плагин сам предложит поставить)",
+        "ffmpeg для склейки видео и звука (необязательно)"
+      ],
+      "author": "Slava Gusak",
+      "repo": "https://github.com/LiteLaunch/litelaunch-vd",
+      "icon": "https://raw.githubusercontent.com/LiteLaunch/litelaunch-vd/main/icon.png",
+      "download": "https://github.com/LiteLaunch/litelaunch-vd/releases/download/v1.0.0/vd.dll",
+      "sha256": "28a3f1408a62dcad44a693bb8a365c4459975f6cb3cf5fd2c85dd4a90c3037f5",
+      "size": 631296
+    },
+    {
+      "id": "yad",
+      "name": "Yandex Music Downloader",
+      "version": "1.0.0",
+      "abi": 1,
+      "keyword": "yad",
+      "description": "Скачивание с Яндекс Музыки",
+      "details": "Скачивает треки, альбомы, плейлисты и всю дискографию артиста с Яндекс Музыки по ссылке, в FLAC или AAC, с обложками и тегами.\n\nНапишите «yad» и вставьте ссылку, Enter начинает загрузку. Пустой запрос предлагает ссылку из буфера обмена. Несколько треков качаются параллельно; когда всё готово, приходит уведомление.\n\nНужен токен Яндекс Музыки (начинается с y0_): вставьте его после «yad», он хранится зашифрованным (DPAPI). При первом запуске плагин предложит установить библиотеки через pip.",
+      "requires": [
+        "Python (если его нет, плагин сам предложит поставить)",
+        "подписка Яндекс Плюс и токен"
+      ],
+      "author": "Slava Gusak",
+      "repo": "https://github.com/LiteLaunch/litelaunch-yad",
+      "icon": "https://raw.githubusercontent.com/LiteLaunch/litelaunch-yad/main/icon.png",
+      "download": "https://github.com/LiteLaunch/litelaunch-yad/releases/download/v1.0.0/yad.dll",
+      "sha256": "736d7877b5d8e61f6fa13fff7bb18e931a320b7803fbc6b1e290dc880efe3f97",
+      "size": 591872
+    },
+    {
+      "id": "zapret",
+      "name": "Zapret",
+      "version": "1.0.0",
+      "abi": 1,
+      "keyword": "z",
+      "description": "Запуск zapret-discord-youtube в один Enter",
+      "details": "Запускает конфиги zapret-discord-youtube (Flowseal): напишите «z» и выберите конфиг, Enter останавливает работающий и запускает выбранный. Избранные конфиги (стрелка вправо) показываются первыми, остальные — в «Конфиги».\n\nПлагин сам держит копию zapret и устанавливает или обновляет её с GitHub, сохраняя ваши списки и настройки. Если zapret у вас уже есть, его настройки подхватятся; можно указать и свою папку.\n\nЕсть строки для остановки, настроек service.bat (служба, Game Filter, ipset) и папки zapret.",
+      "requires": [
+        "права администратора (запрос UAC при запуске конфига)"
+      ],
+      "author": "Slava Gusak",
+      "repo": "https://github.com/LiteLaunch/litelaunch-zapret",
+      "icon": "https://raw.githubusercontent.com/LiteLaunch/litelaunch-zapret/main/icon.png",
+      "download": "https://github.com/LiteLaunch/litelaunch-zapret/releases/download/v1.0.0/zapret.dll",
+      "sha256": "28701b7a9d4f70d09cce223f67f8f022bc0ca06d013ee7cc22e0efeb5195c51c",
+      "size": 702976
+    }
+  ]
+}

@@ -18,6 +18,10 @@ pub(super) const MENU_EXIT: usize = 6;
 
 pub(super) const MENU_UNHIDE: usize = 7;
 
+pub(super) const MENU_PLUGINS: usize = 8;
+
+pub(super) const MENU_UPDATE: usize = 9;
+
 pub(super) fn tray_data(hwnd: HWND) -> NOTIFYICONDATAW {
     NOTIFYICONDATAW { cbSize: size_of::<NOTIFYICONDATAW>() as u32, hWnd: hwnd, uID: TRAY_ID, ..Default::default() }
 }
@@ -54,8 +58,8 @@ pub(super) fn notify(hwnd: HWND, title: &str, text: &str) {
     notify_with(hwnd, title, text, None, "");
 }
 
-/// `icon`: resource id of a large icon to show instead of the generic info one.
-pub(super) fn notify_with(hwnd: HWND, title: &str, text: &str, icon: Option<u16>, folder: &str) {
+/// `icon`: an .ico file with a large icon to show instead of the generic info one.
+pub(super) fn notify_with(hwnd: HWND, title: &str, text: &str, icon: Option<std::path::PathBuf>, folder: &str) {
     *NOTICE_FOLDER.lock().unwrap() = folder.to_string();
     unsafe {
         let mut nid = tray_data(hwnd);
@@ -63,10 +67,9 @@ pub(super) fn notify_with(hwnd: HWND, title: &str, text: &str, icon: Option<u16>
         copy_wide(&mut nid.szInfoTitle, title);
         copy_wide(&mut nid.szInfo, if text.is_empty() { " " } else { text });
         nid.dwInfoFlags = NIIF_INFO;
-        if let Some(id) = icon {
-            let instance = GetModuleHandleW(None).unwrap_or_default();
+        if let Some(path) = icon {
             let size = GetSystemMetrics(SM_CXICON);
-            if let Ok(h) = LoadImageW(Some(instance.into()), PCWSTR(id as _), IMAGE_ICON, size, size, LR_DEFAULTCOLOR) {
+            if let Ok(h) = LoadImageW(None, &HSTRING::from(path.as_os_str()), IMAGE_ICON, size, size, LR_LOADFROMFILE) {
                 nid.hBalloonIcon = HICON(h.0);
                 nid.dwInfoFlags = NIIF_USER | NIIF_LARGE_ICON;
             }
@@ -75,22 +78,20 @@ pub(super) fn notify_with(hwnd: HWND, title: &str, text: &str, icon: Option<u16>
     }
 }
 
-/// A notification sent by a helper process (yad.py) as JSON over WM_COPYDATA.
+/// A notification sent by a helper process (yad.py, vd.py) as JSON over WM_COPYDATA.
+/// `icon` is a path to an .ico, or a plugin id: that plugin's `<id>.ico` in its data folder.
 pub(super) fn notify_from_json(hwnd: HWND, json: &str) {
     let Ok(v) = serde_json::from_str::<Value>(json) else { return };
     let s = |k: &str| v[k].as_str().unwrap_or_default().to_string();
-    let icon = match s("icon").as_str() {
-        "yad" => Some(YAD_ICON),
-        "vd" => Some(VD_ICON),
+    let name = s("icon");
+    let icon = match std::path::Path::new(&name) {
+        p if p.is_absolute() => Some(p.to_path_buf()),
+        _ if !name.is_empty() && !name.contains(['\\', '/', '.']) => Some(crate::config::dir().join(&name).join(format!("{name}.ico"))),
         _ => None,
-    };
+    }
+    .filter(|p| p.is_file());
     notify_with(hwnd, &s("title"), &s("text"), icon, &s("folder"));
 }
-
-/// Resource id of the yad icon (app.rc).
-pub(super) const YAD_ICON: u16 = 2;
-
-pub(super) const VD_ICON: u16 = 3;
 
 /// Sent to the tray callback when the user clicks a notification.
 pub(super) const NIN_BALLOONUSERCLICK: u32 = WM_USER + 5;
@@ -126,12 +127,18 @@ pub(super) fn tray_menu(hwnd: HWND) {
         let auto = if autostart_enabled() { MF_CHECKED } else { MF_UNCHECKED };
         let _ = AppendMenuW(menu, MF_STRING, MENU_SHOW, w!("Открыть"));
         let _ = AppendMenuW(menu, MF_STRING, MENU_RESCAN, w!("Обновить список программ"));
+        let _ = AppendMenuW(menu, MF_STRING, MENU_PLUGINS, w!("Плагины…"));
         let _ = AppendMenuW(menu, MF_STRING, MENU_CONFIG, w!("Настройки (config.json)"));
         let _ = AppendMenuW(menu, MF_STRING | auto, MENU_AUTOSTART, w!("Запускать при входе"));
         let hidden = with(|s| !s.engine.hidden.0.is_empty()).unwrap_or(false);
         let unhide = if hidden { MF_STRING } else { MF_STRING | MF_GRAYED };
         let _ = AppendMenuW(menu, unhide, MENU_UNHIDE, w!("Вернуть скрытые программы"));
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, None);
+        let update = match crate::update::AVAILABLE.lock().unwrap().as_ref() {
+            Some(r) => format!("Обновить до {}", r.version),
+            None => format!("Проверить обновления ({})", crate::update::CURRENT),
+        };
+        let _ = AppendMenuW(menu, MF_STRING, MENU_UPDATE, &HSTRING::from(update));
         let _ = AppendMenuW(menu, MF_STRING, MENU_RESTART, w!("Перезапустить"));
         let _ = AppendMenuW(menu, MF_STRING, MENU_EXIT, w!("Выход"));
         let mut pt = POINT::default();
@@ -142,6 +149,14 @@ pub(super) fn tray_menu(hwnd: HWND) {
         match cmd.0 as usize {
             MENU_SHOW => show(hwnd, None),
             MENU_RESCAN => rescan_apps(hwnd),
+            MENU_PLUGINS => open_manager(),
+            MENU_UPDATE => {
+                if crate::update::AVAILABLE.lock().unwrap().is_some() {
+                    update_launcher(hwnd);
+                } else {
+                    check_updates(hwnd);
+                }
+            }
             MENU_CONFIG => shell_open(&config::path().to_string_lossy(), w!("open")),
             MENU_AUTOSTART => set_autostart(!autostart_enabled()),
             MENU_RESTART => {

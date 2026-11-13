@@ -4,24 +4,21 @@
 
 mod apps;
 mod calc;
+mod catalog;
 mod clip;
 mod config;
-mod fuzzy;
 mod icons;
+mod plugins;
 mod procs;
 mod pyplugin;
+mod python;
 mod search;
 mod shell;
 mod steam;
-// Built-in plugins: each lives in its own repository, a submodule under plugins/.
-#[path = "../plugins/vd/vd.rs"]
-mod vd;
-#[path = "../plugins/yad/yad.rs"]
-mod yad;
-#[path = "../plugins/zapret/zapret.rs"]
-mod zapret;
 mod ui;
-mod util;
+mod update;
+// Shared with the plugins through the SDK.
+use litelaunch_plugin::{fuzzy, util};
 
 use windows::Win32::Foundation::*;
 use windows::Win32::System::DataExchange::COPYDATASTRUCT;
@@ -39,6 +36,25 @@ fn main() {
     // `litelaunch --show [query]` opens the running instance (optionally with a query);
     // `litelaunch --exit` closes it. A plain second start just opens it.
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // Separate processes beside the launcher, not instances of it.
+    match args.first().map(String::as_str) {
+        // The plugin manager window.
+        Some("--plugins") => {
+            if let Err(e) = ui::run_manager() {
+                let msg = windows::core::HSTRING::from(format!("LiteLaunch: {e}"));
+                unsafe { MessageBoxW(None, &msg, w!("LiteLaunch"), MB_ICONERROR) };
+            }
+            return;
+        }
+        // For the manager: what is installed, as JSON on stdout.
+        Some("--plugin-info") => {
+            use std::io::Write;
+            let info = serde_json::to_vec(&plugins::describe_all()).unwrap_or_default();
+            let _ = std::io::stdout().write_all(&info);
+            return;
+        }
+        _ => {}
+    }
     // `--restarted <pid>` (tray "Перезапустить"): the old instance still holds the
     // single-instance mutex while it shuts down, so wait for it to be gone first.
     if let Some(pid) = args.iter().position(|a| a == "--restarted").and_then(|i| args.get(i + 1)?.parse::<u32>().ok()) {

@@ -77,6 +77,16 @@ name = "lite-launcher"
 version = "0.1.0"
 dependencies = [
  "embed-resource",
+ "litelaunch-plugin",
+ "serde",
+ "serde_json",
+ "windows",
+]
+
+[[package]]
+name = "litelaunch-plugin"
+version = "0.1.0"
+dependencies = [
  "serde",
  "serde_json",
  "windows",

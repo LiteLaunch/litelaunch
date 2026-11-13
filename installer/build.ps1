@@ -1,10 +1,12 @@
-# Builds target\installer\LiteLaunch-<version>-x64-setup.exe
+# Builds target\installer\LiteLaunch-<version>-x64-setup.exe (launcher + plugin DLLs)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 Push-Location $root
 try {
     cargo build --release --target-dir target
     if ($LASTEXITCODE) { throw 'cargo build failed' }
+    # The plugin DLLs the installer offers as components.
+    & "$root\scripts\build-plugins.ps1" | Out-Null
     $version = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"(.+)"').Matches[0].Groups[1].Value
     $iscc = @(
         (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source,

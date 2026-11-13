@@ -3,7 +3,7 @@
 
 use crate::config::PluginConfig;
 use serde_json::{Value, json};
-use std::io::{Read, Write};
+use std::io::Read;
 use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
@@ -50,28 +50,12 @@ fn command(python: &str, p: &PluginConfig, method: &str, params: Value, settings
 }
 
 /// Runs a query. The child is parked in `slot` so a newer query can kill it mid-flight.
-/// `warm` is an already started process that reads the request from stdin (see vd::warm_up).
-pub fn query(
-    python: &str,
-    p: &PluginConfig,
-    text: &str,
-    settings: &Value,
-    slot: &Arc<Mutex<Option<Child>>>,
-    warm: Option<Child>,
-) -> Result<Vec<PyResult>, String> {
-    let warm = warm.and_then(|mut c| {
-        let mut stdin = c.stdin.take()?;
-        writeln!(stdin, "{}", request("query", json!([text]), settings)).ok()?;
-        Some(c)
-    });
-    let mut child = match warm {
-        Some(c) => c,
-        None => command(python, p, "query", json!([text]), settings)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("Не удалось запустить Python: {e}"))?,
-    };
+pub fn query(python: &str, p: &PluginConfig, text: &str, settings: &Value, slot: &Arc<Mutex<Option<Child>>>) -> Result<Vec<PyResult>, String> {
+    let mut child = command(python, p, "query", json!([text]), settings)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Не удалось запустить Python: {e}"))?;
     let mut out = child.stdout.take().unwrap();
     let mut err = child.stderr.take().unwrap();
     *slot.lock().unwrap() = Some(child);

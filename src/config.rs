@@ -1,10 +1,8 @@
 //! Settings in %APPDATA%\LiteLaunch\config.json, created with defaults on first run.
 
-pub use crate::vd::VdConfig;
-pub use crate::yad::YadConfig;
-pub use crate::zapret::ZapretConfig;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use serde_json::Value;
+use std::collections::{BTreeMap, HashMap};
 use crate::util::read_json;
 use std::path::PathBuf;
 
@@ -44,12 +42,14 @@ pub struct Config {
     pub python: String,
     /// Python plugins speaking Flow Launcher's JSON-RPC v1 (one process per call).
     pub plugins: Vec<PluginConfig>,
-    /// Built-in Yandex Music downloader.
-    pub yad: YadConfig,
-    /// Built-in video downloader (yt-dlp).
-    pub vd: VdConfig,
-    /// Built-in zapret (Flowseal) config picker.
-    pub zapret: ZapretConfig,
+    /// Settings of the native (DLL) plugins by plugin id, e.g. "yad": {"keyword": "yad", ...}.
+    /// A plugin missing here gets its defaults written on first start.
+    pub plugin_settings: BTreeMap<String, Value>,
+    /// Where the plugin manager takes the list of plugins from: a URL or a local plugins.json;
+    /// empty for the official one on GitHub.
+    pub plugin_catalog: String,
+    /// Look for a new LiteLaunch on GitHub once a day.
+    pub check_updates: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -87,9 +87,9 @@ impl Default for Config {
             clip_keyword: "cb".into(),
             python: "pythonw".into(),
             plugins: Vec::new(),
-            yad: YadConfig::default(),
-            vd: VdConfig::default(),
-            zapret: ZapretConfig::default(),
+            plugin_settings: BTreeMap::new(),
+            plugin_catalog: String::new(),
+            check_updates: true,
         }
     }
 }
@@ -103,10 +103,18 @@ pub fn path() -> PathBuf {
 }
 
 pub fn load() -> Config {
-    let mut cfg = std::fs::read_to_string(path())
-        .ok()
-        .and_then(|s| serde_json::from_str::<Config>(&s).ok())
-        .unwrap_or_default();
+    let raw = read_json(&path());
+    let mut cfg = raw.clone().and_then(|v| serde_json::from_value::<Config>(v).ok()).unwrap_or_default();
+    // Before plugins became DLLs their settings sat at the top level ("yad": {...}).
+    // Saving drops those keys, so the old file is kept once.
+    if raw.as_ref().is_some_and(|r| r.get("plugin_settings").is_none() && r.get("yad").is_some()) {
+        let _ = std::fs::copy(path(), dir().join("config.before-dll-plugins.json"));
+    }
+    for id in ["yad", "vd", "zapret"] {
+        if let Some(old) = raw.as_ref().and_then(|r| r.get(id)).filter(|v| v.is_object()) {
+            cfg.plugin_settings.entry(id.to_string()).or_insert_with(|| old.clone());
+        }
+    }
     cfg.input_font_size = cfg.input_font_size.clamp(10.0, 40.0);
     if cfg.input_height > 0.0 {
         // At least room for the text itself.

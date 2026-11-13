@@ -1,4 +1,4 @@
-//! Small system helpers shared by the launcher and its built-in plugins.
+//! Small system helpers shared by the launcher and its plugins.
 
 use std::path::Path;
 use windows::Win32::System::DataExchange::*;

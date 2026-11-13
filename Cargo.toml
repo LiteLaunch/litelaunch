@@ -2,7 +2,7 @@
 name = "lite-launcher"
 version = "0.1.0"
 edition = "2024"
-description = "Tiny native Flow Launcher replacement: apps, calculator, process killer, Steam, Flow Python plugins"
+description = "Tiny native Flow Launcher replacement: apps, calculator, process killer, Steam, DLL and Flow Python plugins"
 license = "MIT"
 
 [[bin]]
@@ -10,6 +10,7 @@ name = "litelaunch"
 path = "src/main.rs"
 
 [dependencies]
+litelaunch-plugin = { path = "sdk" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 windows = { version = "0.62.2", features = [
@@ -17,6 +18,7 @@ windows = { version = "0.62.2", features = [
     "Win32_Graphics_Dwm",
     "Win32_Graphics_Gdi",
     "Win32_Security",
+    "Win32_Security_Cryptography",
     "Win32_Storage_EnhancedStorage",
     "Win32_System_Com",
     "Win32_System_DataExchange",

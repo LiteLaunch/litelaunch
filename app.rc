@@ -1,8 +1,6 @@
 1 ICON "assets/icon.ico"
 // Tray: drawn for 16-32 px.
 4 ICON "assets/tray.ico"
-2 ICON "plugins/yad/yad.ico"
-3 ICON "plugins/vd/vd.ico"
 1 24 "app.manifest"
 
 // The name Windows shows on notifications from the tray icon.

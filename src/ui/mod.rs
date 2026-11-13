@@ -3,8 +3,8 @@
 
 use crate::config::{self, Config};
 use crate::icons::Icons;
-use crate::pyplugin::{self, PyResult, RpcAction};
-use crate::search::{Action, Engine, Item, PluginRef};
+use crate::pyplugin::{self, RpcAction};
+use crate::search::{Action, Engine, Item, Slow};
 use crate::{CMD_EXIT, CMD_NOTIFY, CMD_SHOW, apps};
 use serde_json::Value;
 use std::cell::RefCell;
@@ -30,12 +30,14 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{BOOL, HSTRING, PCWSTR, Result, w};
 
 mod input;
+mod manager;
 mod paint;
 mod theme;
 mod tray;
 mod worker;
 
 use input::*;
+pub use manager::run_manager;
 use paint::*;
 use theme::*;
 use tray::*;
@@ -81,7 +83,8 @@ struct State {
     jobs: Sender<Job>,
     py_child: Arc<Mutex<Option<Child>>>,
     py_reply: Arc<Mutex<Option<PyReply>>>,
-    vd_warm: crate::vd::Warm,
+    /// The native plugin whose slow query may be running (cancelled by a newer query).
+    slow_native: Option<usize>,
     apps_at: Instant,
     scanning: bool,
     taskbar_created: u32,
@@ -150,19 +153,30 @@ impl State {
         if let Some(mut c) = self.py_child.lock().unwrap().take() {
             let _ = c.kill();
         }
+        if let Some(n) = self.slow_native.take().and_then(|i| self.engine.natives.get(i)) {
+            n.cancel();
+        }
         let out = self.engine.search(&text);
         self.items = out.items;
-        if out.warm_vd {
-            crate::vd::warm_up(&self.vd_warm, &self.engine.cfg.python);
-        }
-        if let Some((plugin, q)) = out.plugin_query
-            && let Some((config, settings)) = self.plugin(plugin)
-        {
-            let icon = std::path::Path::new(&config.dir).join(&config.icon);
-            let icon = icon.exists().then(|| icon.to_string_lossy().into());
-            let wait = if plugin == PluginRef::Vd { "Получаю форматы видео" } else { "Запрос к плагину" };
-            self.items.push(Item::new(format!("{} …", config.name), wait, icon, 0, Action::Nothing));
-            let _ = self.jobs.send(Job { seq, plugin, config, settings, text: q });
+        match out.slow {
+            Some(Slow::Py(plugin, q)) => {
+                if let Some((config, settings)) = self.plugin(plugin) {
+                    let icon = std::path::Path::new(&config.dir).join(&config.icon);
+                    let icon = icon.exists().then(|| icon.to_string_lossy().into());
+                    self.items.push(Item::new(format!("{} …", config.name), "Запрос к плагину", icon, 0, Action::Nothing));
+                    let _ = self.jobs.send(Job { seq, kind: JobKind::Py { plugin, config, settings, text: q } });
+                }
+            }
+            Some(Slow::Native(plugin, data, note)) => {
+                if let Some(n) = self.engine.natives.get(plugin).cloned() {
+                    let note = note.unwrap_or_else(|| "Запрос к плагину".into());
+                    self.items.push(Item::new(format!("{} …", n.info.name), note, n.info.icon.clone(), 0, Action::Nothing));
+                    let settings = self.engine.native_settings(plugin);
+                    self.slow_native = Some(plugin);
+                    let _ = self.jobs.send(Job { seq, kind: JobKind::Native { index: plugin, plugin: n, settings, data } });
+                }
+            }
+            None => {}
         }
         self.sel = 0;
         self.top = 0;
@@ -170,33 +184,22 @@ impl State {
     }
 
     fn take_py_reply(&mut self, seq: u64) {
-        let Some((g, plugin, text, reply)) = self.py_reply.lock().unwrap().take() else { return };
+        let Some((g, name, reply)) = self.py_reply.lock().unwrap().take() else { return };
         if g != seq || g != self.seq.load(Ordering::SeqCst) {
             return;
         }
-        let Some((config, _)) = self.plugin(plugin) else { return };
+        self.slow_native = None;
         self.items = match reply {
-            Ok(results) => {
-                if plugin == PluginRef::Vd {
-                    self.engine.vd_cache.put(&text, &results);
-                }
-                crate::search::py_items(plugin, results)
-            }
-            Err(e) => vec![Item::new(format!("{}: ошибка", config.name), e, None, 0, Action::Nothing)],
+            Ok(items) => items,
+            Err(e) => vec![Item::new(format!("{name}: ошибка"), e, None, 0, Action::Nothing)],
         };
         self.sel = 0;
         self.top = 0;
     }
 
-    /// A plugin's config and the settings sent with its requests.
-    fn plugin(&self, plugin: PluginRef) -> Option<(crate::config::PluginConfig, Value)> {
-        match plugin {
-            PluginRef::User(i) => self.engine.cfg.plugins.get(i).map(|p| (p.clone(), pyplugin::file_settings(p))),
-            PluginRef::Vd => {
-                let vd = &self.engine.cfg.vd;
-                Some((crate::vd::plugin_config(vd), serde_json::to_value(vd).unwrap_or_default()))
-            }
-        }
+    /// A Flow plugin's config and the settings sent with its requests.
+    fn plugin(&self, plugin: usize) -> Option<(crate::config::PluginConfig, Value)> {
+        self.engine.cfg.plugins.get(plugin).map(|p| (p.clone(), pyplugin::file_settings(p)))
     }
 
     fn activate(&mut self, i: usize, admin: bool) -> After {
@@ -251,28 +254,21 @@ impl State {
                 let (plugin, action) = (*plugin, action.clone());
                 self.py_action(plugin, &action)
             }
-            Action::Yad(op) => {
-                crate::yad::run(op, &self.engine.cfg.yad, &self.engine.cfg.python);
-                After::Hide
-            }
-            Action::Vd(op) => {
-                crate::vd::run(op, &self.engine.cfg.vd, &self.engine.cfg.python);
-                After::Hide
-            }
-            Action::Zapret(op) => {
-                let op = op.clone();
-                if matches!(op, crate::zapret::Op::ChooseFolder) {
-                    // The folder dialog would open under the launcher window.
+            Action::Native { plugin, op, hide_first } => {
+                let (plugin, op) = (*plugin, op.clone());
+                if *hide_first {
+                    // A dialog the plugin opens would come up under the launcher window.
                     hide(self.hwnd);
                 }
-                let (changed, after) = crate::zapret::run(&op, &mut self.engine.cfg.zapret);
-                if changed {
-                    crate::config::save(&self.engine.cfg);
-                }
-                match after {
-                    crate::zapret::After::Hide => After::Hide,
-                    crate::zapret::After::Requery => After::Requery,
-                    crate::zapret::After::SetQuery(q) => After::SetQuery(q),
+                match self.engine.run_native(plugin, op) {
+                    Ok(litelaunch_plugin::After::Nothing) => After::None,
+                    Ok(litelaunch_plugin::After::Hide) => After::Hide,
+                    Ok(litelaunch_plugin::After::Requery) => After::Requery,
+                    Ok(litelaunch_plugin::After::SetQuery(q)) => After::SetQuery(q),
+                    Err(e) => {
+                        notify(self.hwnd, "LiteLaunch", &e);
+                        After::Hide
+                    }
                 }
             }
             Action::RunAsAdmin(file) => {
@@ -282,6 +278,22 @@ impl State {
             Action::Reveal(file) => {
                 use std::os::windows::process::CommandExt;
                 let _ = std::process::Command::new("explorer.exe").raw_arg(format!("/select,\"{file}\"")).spawn();
+                After::Hide
+            }
+            Action::OpenManager => {
+                open_manager();
+                After::Hide
+            }
+            Action::InstallPython => {
+                crate::python::install();
+                After::Hide
+            }
+            Action::UpdateLauncher => {
+                update_launcher(self.hwnd);
+                After::Hide
+            }
+            Action::CheckUpdates => {
+                check_updates(self.hwnd);
                 After::Hide
             }
             Action::RemovePlugin(kw) => {
@@ -320,7 +332,7 @@ impl State {
     }
 
     /// Plugin action: Flow API calls are handled here, anything else goes back to the plugin.
-    fn py_action(&mut self, plugin: PluginRef, a: &RpcAction) -> After {
+    fn py_action(&mut self, plugin: usize, a: &RpcAction) -> After {
         let arg = |i: usize| a.params.get(i).and_then(Value::as_str).unwrap_or_default().to_string();
         match a.method.as_str() {
             "Flow.Launcher.ChangeQuery" => return After::SetQuery(arg(0)),
@@ -331,7 +343,7 @@ impl State {
             m if m.starts_with("Flow.Launcher.") => {}
             _ => {
                 if let Some((config, settings)) = self.plugin(plugin) {
-                    pyplugin::call(&self.engine.cfg.python, &config, &settings, a);
+                    pyplugin::call(&crate::python::current().0, &config, &settings, a);
                 }
             }
         }
@@ -349,6 +361,44 @@ fn shell_open(target: &str, verb: PCWSTR) {
     unsafe {
         ShellExecuteW(None, verb, &HSTRING::from(file), &HSTRING::from(params), PCWSTR::null(), SW_SHOWNORMAL);
     }
+}
+
+/// Downloads and runs the newer installer (it closes and restarts the launcher).
+fn update_launcher(hwnd: HWND) {
+    let Some(r) = crate::update::AVAILABLE.lock().unwrap().clone() else { return };
+    notify(hwnd, &format!("Скачиваю LiteLaunch {}", r.version), "Установщик запустится сам, LiteLaunch перезапустится.");
+    let h = hwnd.0 as isize;
+    std::thread::spawn(move || {
+        if let Err(e) = crate::update::install(&r) {
+            notify(HWND(h as _), "Обновление не удалось", &e);
+        }
+    });
+}
+
+/// "Проверить обновления": asks GitHub now and says what it found.
+fn check_updates(hwnd: HWND) {
+    let h = hwnd.0 as isize;
+    std::thread::spawn(move || {
+        let hwnd = HWND(h as _);
+        match crate::update::check_now() {
+            Ok(Some(r)) => announce_update(hwnd, &r),
+            Ok(None) => notify(hwnd, "Обновлений нет", &format!("У вас последняя версия LiteLaunch, {}.", crate::update::CURRENT)),
+            Err(e) => notify(hwnd, "Не удалось проверить обновления", &e),
+        }
+    });
+}
+
+fn announce_update(hwnd: HWND, r: &crate::update::Release) {
+    notify(hwnd, &format!("Вышла LiteLaunch {}", r.version), "Наберите в LiteLaunch «обновить» или выберите «Обновить» в меню значка в трее.");
+}
+
+/// The plugin manager, in a process of its own.
+fn open_manager() {
+    // The manager may take the foreground from us.
+    unsafe {
+        let _ = AllowSetForegroundWindow(ASFW_ANY);
+    }
+    let _ = std::process::Command::new(std::env::current_exe().unwrap_or_default()).arg("--plugins").spawn();
 }
 
 fn copy_to_clipboard(hwnd: HWND, text: &str) {
@@ -823,6 +873,7 @@ pub fn run(show_now: bool) -> Result<()> {
         };
         RegisterClassExW(&wc);
 
+        let first_run = !config::path().exists();
         let cfg = config::load();
         let hwnd = CreateWindowExW(
             WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
@@ -865,14 +916,16 @@ pub fn run(show_now: bool) -> Result<()> {
         let seq = Arc::new(AtomicU64::new(0));
         let py_child = Arc::new(Mutex::new(None));
         let py_reply = Arc::new(Mutex::new(None));
-        let vd_warm: crate::vd::Warm = Arc::new(Mutex::new(None));
-        let jobs = spawn_py_worker(cfg.clone(), hwnd, seq.clone(), py_child.clone(), py_reply.clone(), vd_warm.clone());
+        let jobs = spawn_py_worker(hwnd, seq.clone(), py_child.clone(), py_reply.clone());
+        crate::python::init(&cfg.python);
+        let (natives, plugin_errors) = crate::plugins::load_all();
+        let natives: Vec<Arc<crate::plugins::Native>> = natives.into_iter().map(Arc::new).collect();
         let hotkey = parse_hotkey(&cfg.hotkey);
         let scale = GetDpiForWindow(hwnd) as f32 / 96.0;
         let state = State {
             hwnd,
             edit,
-            engine: Engine::new(cfg.clone(), apps_list),
+            engine: Engine::new(cfg.clone(), apps_list, natives),
             items: Vec::new(),
             query: String::new(),
             menu: None,
@@ -890,7 +943,7 @@ pub fn run(show_now: bool) -> Result<()> {
             jobs,
             py_child,
             py_reply,
-            vd_warm,
+            slow_native: None,
             apps_at: Instant::now(),
             scanning: false,
             taskbar_created: RegisterWindowMessageW(w!("TaskbarCreated")),
@@ -901,9 +954,9 @@ pub fn run(show_now: bool) -> Result<()> {
         add_tray(hwnd);
         let _ = AddClipboardFormatListener(hwnd);
         rescan_apps(hwnd);
-        std::thread::spawn(crate::yad::install);
-        std::thread::spawn(crate::vd::install);
-        std::thread::spawn(crate::zapret::install);
+        if !plugin_errors.is_empty() {
+            notify(hwnd, "LiteLaunch: плагины не загрузились", &plugin_errors.join("\n"));
+        }
 
         // After a restart the old instance may still hold the hotkey for a moment.
         let mut registered = false;
@@ -916,9 +969,20 @@ pub fn run(show_now: bool) -> Result<()> {
                 std::thread::sleep(Duration::from_millis(100));
             }
         }
+        let previous = crate::update::previous_run();
         if !registered {
             notify(hwnd, "LiteLaunch", &format!("Не удалось занять {}: она уже используется (Flow Launcher?). Поменяйте hotkey в config.json.", cfg.hotkey));
+        } else if first_run {
+            notify(
+                hwnd,
+                "LiteLaunch работает в фоне",
+                &format!("Нажмите {}, чтобы открыть. Плагины, настройки и автозапуск — в меню значка LiteLaunch в трее.", cfg.hotkey),
+            );
+        } else if let Some(prev) = previous {
+            notify(hwnd, &format!("LiteLaunch обновлён до {}", crate::update::CURRENT), &format!("Была версия {prev}. Плагины и настройки на месте."));
         }
+        let h = hwnd.0 as isize;
+        crate::update::spawn_checker(cfg.check_updates, move |r| announce_update(HWND(h as _), r));
         if show_now {
             show(hwnd, None);
         }

@@ -3,8 +3,10 @@
 
 use crate::apps::App;
 use crate::config::{Config, Hidden, Pins, Usage};
+use crate::plugins::Native;
 use crate::pyplugin::{PyResult, RpcAction};
 use crate::{calc, fuzzy, procs, steam};
+use serde_json::Value;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
@@ -75,28 +77,64 @@ pub enum Action {
     ClipForget(String),
     ClipClear,
     SetQuery(String),
-    Py { plugin: PluginRef, action: RpcAction },
-    Yad(crate::yad::Op),
-    Vd(crate::vd::Op),
-    Zapret(crate::zapret::Op),
+    /// Index into the config's Flow plugins.
+    Py { plugin: usize, action: RpcAction },
+    /// A native plugin's own action (index into Engine::natives), handed back to it.
+    Native { plugin: usize, op: Value, hide_first: bool },
     RunAsAdmin(String),
     /// Opens Explorer with the file selected.
     Reveal(String),
     Hide(String),
     /// Removes a Python plugin from the config, or disables a built-in one (by keyword).
     RemovePlugin(String),
+    /// Opens the plugin manager window.
+    OpenManager,
+    /// Installs LiteLaunch's private Python (see python.rs).
+    InstallPython,
+    /// Downloads and runs the newer LiteLaunch installer (update.rs).
+    UpdateLauncher,
+    /// Asks GitHub for a newer LiteLaunch now.
+    CheckUpdates,
     Nothing,
 }
 
-/// Who answers a plugin query: a Flow plugin from the config, or the built-in vd.
-#[derive(Clone, Copy, PartialEq)]
-pub enum PluginRef {
-    User(usize),
-    Vd,
+/// A native plugin's row as a result.
+pub fn native_item(plugin: usize, it: litelaunch_plugin::Item) -> Item {
+    use litelaunch_plugin::Action as A;
+    let action = match it.action {
+        A::Nothing => Action::Nothing,
+        A::SetQuery(q) => Action::SetQuery(q),
+        A::Copy(s) => Action::Copy(s),
+        A::Launch(t) => Action::Launch(t),
+        A::Plugin(op) => Action::Native { plugin, op, hide_first: it.hide_first },
+        A::InstallPython => Action::InstallPython,
+    };
+    let mut item = Item::new(it.title, it.sub, it.icon, it.score, action).with_file(it.file);
+    item.glyph = it.glyph;
+    item
+}
+
+/// The plugin's view of one of its rows (for its actions menu).
+fn to_native(item: &Item) -> litelaunch_plugin::Item {
+    let action = match &item.action {
+        Action::Native { op, .. } => litelaunch_plugin::Action::Plugin(op.clone()),
+        _ => litelaunch_plugin::Action::Nothing,
+    };
+    let mut it = litelaunch_plugin::Item::new(item.title.clone(), item.sub.clone(), item.icon.clone(), item.score, action);
+    it.file = item.file.clone();
+    it
+}
+
+/// Slow plugin work for the background worker.
+pub enum Slow {
+    /// A Flow plugin (index into the config's plugins) and the query text.
+    Py(usize, String),
+    /// A native plugin (index into Engine::natives), its data for query_slow, and the "…" row note.
+    Native(usize, Value, Option<String>),
 }
 
 /// Plugin results as items, best first.
-pub fn py_items(plugin: PluginRef, mut results: Vec<PyResult>) -> Vec<Item> {
+pub fn py_items(plugin: usize, mut results: Vec<PyResult>) -> Vec<Item> {
     results.sort_by(|a, b| b.score.cmp(&a.score));
     results
         .into_iter()
@@ -113,7 +151,8 @@ pub struct Engine {
     pub usage: Usage,
     pub pins: Pins,
     pub hidden: Hidden,
-    pub vd_cache: crate::vd::Cache,
+    /// Native (DLL) plugins, see plugins.rs.
+    pub natives: Vec<Arc<Native>>,
     pub shell_history: crate::shell::History,
     pub clip: crate::clip::History,
     games: Vec<steam::Game>,
@@ -123,19 +162,44 @@ pub struct Engine {
 /// What the UI should do next besides showing `items`.
 pub struct Outcome {
     pub items: Vec<Item>,
-    /// Python plugin and query text to run in the background.
-    pub plugin_query: Option<(PluginRef, String)>,
-    /// Start a prewarmed vd Python: a link is probably coming.
-    pub warm_vd: bool,
+    /// Plugin work to run in the background.
+    pub slow: Option<Slow>,
 }
 
 impl Engine {
-    pub fn new(cfg: Config, apps: Arc<RwLock<Vec<App>>>) -> Self {
-        Self { cfg, apps, usage: Usage::load(), pins: Pins::load(), hidden: Hidden::load(), vd_cache: Default::default(), shell_history: crate::shell::History::load(), clip: crate::clip::History::load(), games: Vec::new(), games_at: None }
+    pub fn new(mut cfg: Config, apps: Arc<RwLock<Vec<App>>>, natives: Vec<Arc<Native>>) -> Self {
+        // A newly installed plugin: its default settings go into config.json, where they can be edited.
+        let mut added = false;
+        for n in &natives {
+            if !cfg.plugin_settings.contains_key(&n.id) && !n.info.defaults.is_null() {
+                cfg.plugin_settings.insert(n.id.clone(), n.info.defaults.clone());
+                added = true;
+            }
+        }
+        if added {
+            crate::config::save(&cfg);
+        }
+        Self { cfg, apps, usage: Usage::load(), pins: Pins::load(), hidden: Hidden::load(), natives, shell_history: crate::shell::History::load(), clip: crate::clip::History::load(), games: Vec::new(), games_at: None }
+    }
+
+    /// A native plugin's current settings.
+    pub fn native_settings(&self, i: usize) -> Value {
+        self.natives.get(i).map(|n| n.settings(&self.cfg.plugin_settings).clone()).unwrap_or(Value::Null)
+    }
+
+    /// Runs a native plugin's action; saves its settings if it changed them.
+    pub fn run_native(&mut self, i: usize, op: Value) -> Result<litelaunch_plugin::After, String> {
+        let Some(n) = self.natives.get(i).cloned() else { return Err("плагин не загружен".into()) };
+        let (after, settings) = n.run(&self.native_settings(i), op).map_err(|e| format!("{}: {e}", n.info.name))?;
+        if let Some(s) = settings {
+            self.cfg.plugin_settings.insert(n.id.clone(), s);
+            crate::config::save(&self.cfg);
+        }
+        Ok(after)
     }
 
     pub fn search(&mut self, query: &str) -> Outcome {
-        let mut out = Outcome { items: Vec::new(), plugin_query: None, warm_vd: false };
+        let mut out = Outcome { items: Vec::new(), slow: None };
         if query.trim().is_empty() {
             return out;
         }
@@ -157,27 +221,23 @@ impl Engine {
                 self.apply_pins(query, &mut out.items);
                 return out;
             }
-            let (yad, vd) = (&self.cfg.yad, &self.cfg.vd);
-            if !yad.keyword.is_empty() && kw.eq_ignore_ascii_case(&yad.keyword) {
-                out.items = crate::yad::search(yad, rest.trim());
-                return out;
-            }
-            if !vd.keyword.is_empty() && kw.eq_ignore_ascii_case(&vd.keyword) {
-                match crate::vd::search(vd, rest.trim(), &self.vd_cache) {
-                    crate::vd::Found::Items(items) => {
-                        out.warm_vd = vd.prewarm && crate::vd::has_lib() && items.iter().all(|it| matches!(it.action, Action::Nothing | Action::Vd(_) | Action::SetQuery(_)));
-                        out.items = items;
+            for (i, n) in self.natives.iter().enumerate() {
+                let settings = n.settings(&self.cfg.plugin_settings);
+                let nkw = n.keyword(settings);
+                if nkw.is_empty() || !kw.eq_ignore_ascii_case(&nkw) {
+                    continue;
+                }
+                match n.query(settings, rest.trim()) {
+                    Ok(reply) => {
+                        out.items = reply.items.into_iter().map(|it| native_item(i, it)).collect();
+                        out.slow = reply.slow.map(|data| Slow::Native(i, data, reply.slow_note));
                     }
-                    crate::vd::Found::Fetch(url) => out.plugin_query = Some((PluginRef::Vd, url)),
+                    Err(e) => out.items = vec![Item::new(format!("{}: ошибка", n.info.name), e, n.info.icon.clone(), 0, Action::Nothing)],
                 }
                 return out;
             }
-            if !self.cfg.zapret.keyword.is_empty() && kw.eq_ignore_ascii_case(&self.cfg.zapret.keyword) {
-                out.items = crate::zapret::search(&self.cfg.zapret, rest.trim());
-                return out;
-            }
             if let Some(i) = self.cfg.plugins.iter().position(|p| p.keyword.eq_ignore_ascii_case(kw)) {
-                out.plugin_query = Some((PluginRef::User(i), rest.trim().to_string()));
+                out.slow = Some(Slow::Py(i, rest.trim().to_string()));
                 return out;
             }
         }
@@ -188,7 +248,13 @@ impl Engine {
 
     /// The actions menu for a result: its own actions, plus removing the plugin on keyword rows.
     pub fn actions(&self, item: &Item) -> Vec<Item> {
-        let mut v = crate::zapret::actions(&self.cfg.zapret, item);
+        let mut v = Vec::new();
+        if let Action::Native { plugin, .. } = &item.action
+            && let Some(n) = self.natives.get(*plugin)
+        {
+            let extra = n.actions(n.settings(&self.cfg.plugin_settings), to_native(item));
+            v.extend(extra.into_iter().map(|it| native_item(*plugin, it)));
+        }
         v.extend(item.actions());
         if let Action::SetQuery(q) = &item.action {
             let kw = q.trim();
@@ -236,14 +302,14 @@ impl Engine {
         if cfg.shell_keyword.eq_ignore_ascii_case(kw) {
             cfg.shell_keyword.clear();
         }
-        if cfg.yad.keyword.eq_ignore_ascii_case(kw) {
-            cfg.yad.keyword.clear();
-        }
-        if cfg.vd.keyword.eq_ignore_ascii_case(kw) {
-            cfg.vd.keyword.clear();
-        }
-        if cfg.zapret.keyword.eq_ignore_ascii_case(kw) {
-            cfg.zapret.keyword.clear();
+        for n in &self.natives {
+            let mut settings = n.settings(&cfg.plugin_settings).clone();
+            if n.keyword(&settings).eq_ignore_ascii_case(kw)
+                && let Some(obj) = settings.as_object_mut()
+            {
+                obj.insert("keyword".into(), Value::String(String::new()));
+                cfg.plugin_settings.insert(n.id.clone(), settings);
+            }
         }
         crate::config::save(cfg);
     }
@@ -325,9 +391,9 @@ impl Engine {
             vec![(self.cfg.kill_keyword.clone(), "Process Killer".into(), Some("C:\\Windows\\System32\\Taskmgr.exe".into()))];
         hints.push((self.cfg.clip_keyword.clone(), "История буфера обмена".into(), None));
         hints.push((self.cfg.shell_keyword.clone(), "Shell (PowerShell)".into(), None));
-        hints.push((self.cfg.yad.keyword.clone(), "Yandex Music Downloader".into(), Some(crate::yad::icon())));
-        hints.push((self.cfg.vd.keyword.clone(), "Video Downloader".into(), Some(crate::vd::icon())));
-        hints.push((self.cfg.zapret.keyword.clone(), "Zapret".into(), Some(crate::zapret::icon())));
+        for n in &self.natives {
+            hints.push((n.keyword(n.settings(&self.cfg.plugin_settings)), n.info.name.clone(), n.info.icon.clone()));
+        }
         for p in &self.cfg.plugins {
             let icon = std::path::Path::new(&p.dir).join(&p.icon);
             hints.push((p.keyword.clone(), p.name.clone(), icon.exists().then(|| icon.to_string_lossy().into())));
@@ -337,6 +403,28 @@ impl Engine {
             if by_kw || fuzzy::score(&name, q).is_some_and(|s| s >= 450) {
                 items.push(Item::new(name, "", icon, if by_kw { 900 } else { 300 }, Action::SetQuery(format!("{kw} "))));
             }
+        }
+        // The plugin manager: "плагины", "plugins", "расширения".
+        let manager = ["Плагины", "Plugins", "Расширения"].iter().filter_map(|w| fuzzy::score(w, q)).max();
+        if let Some(sc) = manager.filter(|&s| s >= 450) {
+            let exe = std::env::current_exe().ok().map(|p| p.to_string_lossy().into_owned());
+            items.push(Item::new("Плагины", "Установить, обновить, удалить, включить и выключить", exe, sc as i64, Action::OpenManager));
+        }
+        // Updates of LiteLaunch itself: "обновить", "update".
+        let update = ["Обновить LiteLaunch", "Обновление", "Update LiteLaunch"].iter().filter_map(|w| fuzzy::score(w, q)).max();
+        if let Some(sc) = update.filter(|&s| s >= 450) {
+            let exe = std::env::current_exe().ok().map(|p| p.to_string_lossy().into_owned());
+            let item = match crate::update::AVAILABLE.lock().unwrap().clone() {
+                Some(r) => Item::new(
+                    format!("Обновить LiteLaunch до {}", r.version),
+                    format!("Сейчас {} · Enter скачает и установит, плагины и настройки сохранятся", crate::update::CURRENT),
+                    exe,
+                    sc as i64 + 100,
+                    Action::UpdateLauncher,
+                ),
+                None => Item::new("Проверить обновления LiteLaunch", format!("Установлена версия {}", crate::update::CURRENT), exe, sc as i64, Action::CheckUpdates),
+            };
+            items.push(item);
         }
         items.sort_by(|a, b| b.score.cmp(&a.score));
         items.truncate(50);
