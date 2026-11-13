@@ -558,6 +558,10 @@ unsafe fn fill(hdc: HDC, r: RECT, color: u32, radius: i32) {
 
 /// Draws text; returns its height.
 unsafe fn text(hdc: HDC, font: HFONT, color: u32, s: &str, mut r: RECT, flags: DRAW_TEXT_FORMAT) -> i32 {
+    // An empty slice has a dangling pointer, which DrawTextW reads: nothing to draw anyway.
+    if s.is_empty() {
+        return 0;
+    }
     unsafe {
         let mut w = enc(s);
         SelectObject(hdc, font.into());
@@ -568,6 +572,9 @@ unsafe fn text(hdc: HDC, font: HFONT, color: u32, s: &str, mut r: RECT, flags: D
 
 /// Size of wrapped text in a box `width` wide.
 unsafe fn measure(hdc: HDC, font: HFONT, s: &str, width: i32, flags: DRAW_TEXT_FORMAT) -> (i32, i32) {
+    if s.is_empty() {
+        return (0, 0);
+    }
     unsafe {
         let mut w = enc(s);
         let mut r = RECT { left: 0, top: 0, right: width, bottom: 0 };
@@ -720,7 +727,7 @@ impl M {
             let width = right - left;
             if !card.body.is_empty() {
                 let (_, h) = measure(hdc, self.fonts.body, &card.body, width, DT_WORDBREAK);
-                text(hdc, self.fonts.body, self.theme.text, &card.body, RECT { left, top: y, right, bottom: bottom.min(y + h) }, DT_WORDBREAK | DT_END_ELLIPSIS);
+                text(hdc, self.fonts.body, self.theme.text, &card.body, RECT { left, top: y, right, bottom: bottom.min(y + h) }, DT_WORDBREAK);
                 y += h + self.px(16.0);
             }
             for line in &card.meta {
@@ -728,7 +735,7 @@ impl M {
                     break;
                 }
                 let (_, h) = measure(hdc, self.fonts.small, line, width, DT_WORDBREAK);
-                text(hdc, self.fonts.small, self.theme.muted, line, RECT { left, top: y, right, bottom }, DT_WORDBREAK | DT_PATH_ELLIPSIS);
+                text(hdc, self.fonts.small, self.theme.muted, line, RECT { left, top: y, right, bottom }, DT_WORDBREAK);
                 y += h + self.px(6.0);
             }
         }

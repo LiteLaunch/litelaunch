@@ -1,6 +1,6 @@
 [package]
 name = "lite-launcher"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Tiny native Flow Launcher replacement: apps, calculator, process killer, Steam, DLL and Flow Python plugins"
 license = "MIT"
