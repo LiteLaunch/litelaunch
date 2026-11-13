@@ -311,7 +311,8 @@ impl Engine {
             items.push(Item::new(format!("= {s}"), "Калькулятор · Enter — скопировать", calc_icon, 2000, Action::Copy(s)));
         }
         for app in self.apps.read().unwrap().iter() {
-            if self.hidden.contains(&app.target()) || self.blacklisted(app) {
+            // Steam games are found only through the Steam keyword.
+            if app.is_steam_game() || self.hidden.contains(&app.target()) || self.blacklisted(app) {
                 continue;
             }
             if let Some(sc) = fuzzy::score(&app.name, q) {

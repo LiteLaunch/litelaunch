@@ -27,6 +27,11 @@ impl App {
     pub fn target(&self) -> String {
         format!("shell:AppsFolder\\{}", self.id)
     }
+
+    /// A Start menu shortcut Steam made for a game (see `location`); those belong to `st`.
+    pub fn is_steam_game(&self) -> bool {
+        self.id.starts_with("steam://") || self.location == "Steam"
+    }
 }
 
 /// Enumerates apps. Runs on a worker thread (initializes COM for it).
